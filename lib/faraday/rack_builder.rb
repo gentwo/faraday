@@ -128,6 +128,26 @@ module Faraday
       @handlers.delete(handler)
     end
 
+    class ParamsEncoderHandler < Struct.new(:app, :connection)
+      def call(env)
+        path = env.url
+        if path.respond_to? :query
+          if query = path.query
+            path = path.dup
+            path.query = nil
+          end
+        else
+          path, query = path.split('?', 2)
+        end
+        if (query && !query.empty?)
+          env.url = path
+          env.params.update (env.request.params_encoder || Utils.default_params_encoder).decode(query)
+        end
+        env.url = connection.build_exclusive_url(env.url, Utils::ParamsHash.new.tap {|h| h.update(env.params)})
+        app.call env
+      end
+    end
+
     # Processes a Request into a Response by passing it through this Builder's
     # middleware stack.
     #
@@ -136,6 +156,7 @@ module Faraday
     #
     # Returns a Faraday::Response.
     def build_response(connection, request)
+      insert(@handlers.length > 0 ? -2 : 0 , ParamsEncoderHandler, connection) unless locked?
       app.call(build_env(connection, request))
     end
 
@@ -190,7 +211,7 @@ module Faraday
       Env.new(request.method, request.body,
         connection.build_exclusive_url(request.path, request.params),
         request.options, request.headers, connection.ssl,
-        connection.parallel_manager)
+        connection.parallel_manager, Utils::ParamsHash.new)
     end
 
     private

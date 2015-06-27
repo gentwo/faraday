@@ -110,5 +110,27 @@ module Adapters
         @conn.get('/yo')
       end
     end
+
+    class InjectParams < Struct.new(:app)
+      def call(env)
+        env.params['injected'] = 'a'
+        env.params['injected2'] = 'b'
+        app.call(env)
+      end
+    end
+
+    def test_middleware_can_set_params
+      @stubs.get('/injection_test') do |env|
+        assert_equal 'http:/injection_test?injected=a&injected2=b', env.url.to_s
+        assert_equal 'a', env[:params]['injected']
+        assert_equal 'b', env[:params]['injected2']
+      end
+      conn  = Faraday.new do |builder|
+        builder.use InjectParams
+        builder.adapter :test, @stubs
+      end
+      conn.get('/injection_test')      
+    end
+
   end
 end
